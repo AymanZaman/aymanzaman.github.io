@@ -1,0 +1,703 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Hash Table Visualiser</title>
+<link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
+<style>
+:root {
+  --purple: #5C2D91;
+  --purple-dark: #3E1D63;
+  --gold: #C8963E;
+  --empty-cell: #EDEAF2;
+  --collision-flash: #DC3545;
+  --probing-cell: #198754;
+  --probe-checking: #FFC107;
+  --success: #198754;
+}
+
+body { background: #F5F3F7; min-height: 100vh; font-family: system-ui, -apple-system, sans-serif; }
+
+header {
+  background: linear-gradient(135deg, var(--purple-dark), var(--purple));
+  padding: 12px 24px;
+  box-shadow: 0 2px 12px rgba(92,45,145,0.25);
+}
+
+header h1 { color: #FFF; font-size: 1.1rem; font-weight: 700; margin: 0; }
+
+.bucket-row { display: flex; align-items: stretch; min-height: 48px; margin-bottom: 2px; position: relative; }
+
+.bucket-index {
+  width: 44px; display: flex; align-items: center; justify-content: center;
+  background: var(--purple); color: #FFF;
+  font-family: Consolas, monospace; font-weight: 700; font-size: 15px;
+  border-radius: 6px 0 0 6px; flex-shrink: 0; z-index: 1;
+}
+
+.bucket-content {
+  flex: 1; display: flex; align-items: center; background: var(--empty-cell);
+  border-radius: 0 6px 6px 0; padding: 5px 10px; gap: 6px;
+  position: relative; overflow-x: auto; min-height: 48px;
+  transition: background-color 0.4s, box-shadow 0.4s;
+}
+
+.bucket-content.occupied { background: #E8E0F0; }
+
+.bucket-content.collision-active {
+  animation: collisionPulse 0.5s ease-in-out 3;
+  background: #FDE8E8;
+}
+
+.bucket-content.probe-highlight {
+  background: #FFF3CD; box-shadow: inset 0 0 0 3px var(--probe-checking); z-index: 2;
+}
+
+.bucket-content.probe-success {
+  background: #D5F5E3; box-shadow: inset 0 0 0 3px var(--success); z-index: 2;
+}
+
+@keyframes collisionPulse {
+  0%, 100% { background: #E8E0F0; }
+  50% { background: #FDE8E8; box-shadow: 0 0 24px rgba(220,53,69,0.5); }
+}
+
+.key-node {
+  display: inline-flex; align-items: center; justify-content: center;
+  min-width: 42px; height: 32px; padding: 0 10px; border-radius: 6px;
+  font-family: Consolas, monospace; font-weight: 700; font-size: 14px;
+  color: #FFF; background: var(--purple); position: relative; flex-shrink: 0;
+}
+
+.key-node.inserting { animation: nodePopIn 0.5s ease-out; }
+.key-node.chained { background: var(--gold); color: #1A1A2E; }
+.key-node.probed { background: var(--probing-cell); color: #FFF; }
+.key-node.empty-slot { background: transparent; border: 2px dashed #D0CCD8; color: #999; font-weight: 400; }
+
+.chain-arrow {
+  display: flex; align-items: center;
+  font-family: Consolas, monospace; font-size: 16px;
+  color: var(--gold); font-weight: 700; flex-shrink: 0;
+}
+
+@keyframes nodePopIn {
+  from { transform: scale(0); opacity: 0; }
+  50% { transform: scale(1.15); }
+  to { transform: scale(1); opacity: 1; }
+}
+
+.notification-log {
+  overflow-y: auto;
+  font-family: Consolas, monospace; font-size: 12px; color: #A0A0B0; line-height: 1.6;
+}
+
+.notif-entry { padding: 1px 0; opacity: 0; transform: translateY(-8px); transition: all 0.3s; }
+.notif-entry.visible { opacity: 1; transform: translateY(0); }
+
+.n-collision { color: #DC3545; font-weight: 700; }
+.n-probe { color: #FFC107; }
+.n-success { color: #198754; }
+.n-info { color: #0D6EFD; }
+
+.status-banner {
+  padding: 8px 14px; border-radius: 8px; font-weight: 600; font-size: 14px;
+  text-align: center; display: none; margin-bottom: 8px;
+}
+
+.status-banner.visible { display: block; }
+.status-banner.success { background: #D5F5E3; color: var(--success); border: 1px solid #A3E4C1; }
+.status-banner.collision { background: #FDE8E8; color: var(--collision-flash); border: 1px solid #F5C6C6; font-weight: 700; }
+.status-banner.probing { background: #FFF8E1; color: #CC8800; border: 1px solid #F0D870; font-weight: 700; }
+
+.probe-arrow { position: absolute; z-index: 10; pointer-events: none; opacity: 0; transition: opacity 0.5s; }
+.probe-arrow.visible { opacity: 1; }
+.probe-arrow path { stroke: var(--probe-checking); stroke-width: 3; fill: none; stroke-dasharray: 8 4; }
+.probe-arrow.success path { stroke: var(--success); stroke-dasharray: 0; stroke-width: 3; }
+.probe-arrow polygon { fill: var(--probe-checking); }
+.probe-arrow.success polygon { fill: var(--success); }
+
+@keyframes dashMove { to { stroke-dashoffset: -24; } }
+.probe-arrow path.animating { animation: dashMove 0.6s linear infinite; }
+
+.load-bar { height: 8px; border-radius: 4px; transition: width 0.3s, background 0.3s; background: var(--success); }
+.load-bar.warning { background: var(--probe-checking); }
+.load-bar.danger { background: var(--collision-flash); }
+
+.hash-display {
+  background: #F0ECF5; border-radius: 6px; padding: 8px 10px;
+  font-family: Consolas, monospace; font-size: 12px; color: var(--purple-dark);
+  text-align: center; font-weight: 600; word-break: break-all;
+}
+
+@keyframes probeFlash {
+  0%, 100% { background: #E8E0F0; }
+  50% { background: #FFF3CD; }
+}
+
+.bucket-content.probing-check { animation: probeFlash 0.6s ease-in-out; }
+</style>
+</head>
+<body>
+
+<header>
+  <h1>Hash Table Visualiser</h1>
+</header>
+
+<div class="container-fluid py-3" style="max-width: 1440px;">
+  <div class="row g-3">
+
+    <div class="col-md-3">
+      <div class="card shadow-sm">
+        <div class="card-body">
+          <h6 class="card-title text-uppercase text-muted small fw-bold mb-3">Controls</h6>
+
+          <div class="mb-3">
+            <label class="form-label small fw-semibold text-muted">Hash Function</label>
+            <select class="form-select form-select-sm" id="hash-function">
+              <option value="mod">key mod tableSize</option>
+              <option value="firstchar">First char code mod tableSize</option>
+              <option value="asciisum">Sum of ASCII codes mod tableSize</option>
+            </select>
+          </div>
+
+          <div class="mb-3">
+            <label class="form-label small fw-semibold text-muted">Collision Resolution</label>
+            <div class="btn-group w-100" role="group" id="method-group">
+              <button class="btn btn-sm btn-primary active" data-method="chaining">Chaining</button>
+              <button class="btn btn-sm btn-outline-primary" data-method="linear-probing">Linear Probing</button>
+            </div>
+          </div>
+
+          <div class="mb-3">
+            <label class="form-label small fw-semibold text-muted">Table Size</label>
+            <select class="form-select form-select-sm" id="table-size">
+              <option value="5">5</option>
+              <option value="7">7</option>
+              <option value="10" selected>10</option>
+              <option value="13">13</option>
+            </select>
+          </div>
+
+          <div class="mb-3">
+            <label class="form-label small fw-semibold text-muted">Insert Key</label>
+            <div class="input-group input-group-sm">
+              <input type="text" class="form-control" id="key-input" placeholder="e.g. 15" autocomplete="off" disabled>
+              <button class="btn btn-primary fw-bold" id="btn-insert" style="font-size:1.2rem;line-height:1;" disabled>+</button>
+            </div>
+          </div>
+
+          <div class="hash-display" id="hash-display">Ready -- insert a key to begin</div>
+
+          <button class="btn btn-sm btn-outline-danger w-100 mt-2" id="btn-reset">Reset Table</button>
+        </div>
+      </div>
+    </div>
+
+    <div class="col-md-6">
+      <div class="card shadow-sm h-100">
+        <div class="card-body d-flex flex-column">
+          <div id="status-banner" class="status-banner"></div>
+          <div class="table-container flex-grow-1" id="table-container" style="overflow-y:auto;"></div>
+        </div>
+      </div>
+    </div>
+
+    <div class="col-md-3">
+      <div class="card shadow-sm">
+        <div class="card-body">
+          <h6 class="card-title text-uppercase text-muted small fw-bold mb-3">Statistics</h6>
+
+          <div class="d-flex justify-content-between align-items-center border-bottom pb-2 mb-2">
+            <span class="small text-muted fw-semibold">Keys Inserted</span>
+            <span class="fw-bold fs-5" style="color:var(--purple);" id="stat-keys">0</span>
+          </div>
+          <div class="d-flex justify-content-between align-items-center border-bottom pb-2 mb-2">
+            <span class="small text-muted fw-semibold">Collisions</span>
+            <span class="fw-bold fs-5" style="color:var(--purple);" id="stat-collisions">0</span>
+          </div>
+          <div class="d-flex justify-content-between align-items-center border-bottom pb-2 mb-2">
+            <span class="small text-muted fw-semibold">Load Factor</span>
+            <span class="fw-bold fs-5" style="color:var(--purple);" id="stat-load-factor">0.00</span>
+          </div>
+          <div class="bg-light rounded-pill mb-3" style="height:8px;">
+            <div class="load-bar rounded-pill" id="load-bar" style="width:0%"></div>
+          </div>
+          <div class="d-flex justify-content-between align-items-center">
+            <span class="small text-muted fw-semibold">Avg Probes / Chain Len</span>
+            <span class="fw-bold fs-5" style="color:var(--purple);" id="stat-avg-probes">--</span>
+          </div>
+        </div>
+      </div>
+    </div>
+
+  </div>
+
+  <div class="row g-3 mt-1">
+    <div class="col-12">
+      <div class="card shadow-sm border-0" style="background:#1A1A2E;">
+        <div class="card-body p-3">
+          <h6 class="text-uppercase small fw-bold mb-2" style="color:#8B8F99;">Terminal</h6>
+          <div class="notification-log" id="notification-log" style="max-height:160px;">
+            <div style="color:#6B6F79;font-size:12px;">Insert keys to see the step-by-step breakdown here...</div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+const tableSizeSelect = document.getElementById('table-size');
+const hashFunctionSelect = document.getElementById('hash-function');
+const keyInput = document.getElementById('key-input');
+const btnInsert = document.getElementById('btn-insert');
+const btnReset = document.getElementById('btn-reset');
+const tableContainer = document.getElementById('table-container');
+const hashDisplay = document.getElementById('hash-display');
+const statusBanner = document.getElementById('status-banner');
+const notifLog = document.getElementById('notification-log');
+const methodGroup = document.getElementById('method-group');
+const statKeys = document.getElementById('stat-keys');
+const statCollisions = document.getElementById('stat-collisions');
+const statLoadFactor = document.getElementById('stat-load-factor');
+const statAvgProbes = document.getElementById('stat-avg-probes');
+const loadBar = document.getElementById('load-bar');
+
+let tableSize = 10;
+let resolutionMethod = 'chaining';
+let hashFnType = 'mod';
+let table = [];
+let keysInserted = 0;
+let collisionCount = 0;
+let history = [];
+let stepByStepMode = true;
+let isAnimating = false;
+
+function compileHashFunction(key) {
+  const num = typeof key === 'number' ? key : NaN;
+  const str = String(key);
+  switch (hashFnType) {
+    case 'mod':
+      if (!isNaN(num)) return Math.abs(num) % tableSize;
+      return Math.abs(hashString(str)) % tableSize;
+    case 'firstchar':
+      return (str.charCodeAt(0) || 0) % tableSize;
+    case 'asciisum':
+      let sum = 0;
+      for (let i = 0; i < str.length; i++) sum += str.charCodeAt(i);
+      return sum % tableSize;
+    default:
+      return 0;
+  }
+}
+
+function hashString(s) {
+  let h = 0;
+  for (let i = 0; i < s.length; i++) {
+    h = ((h << 5) - h) + s.charCodeAt(i);
+    h |= 0;
+  }
+  return Math.abs(h);
+}
+
+function getHashFnLabel() {
+  if (hashFnType === 'mod') return `key mod ${tableSize}`;
+  if (hashFnType === 'firstchar') return `first_char_code(key) mod ${tableSize}`;
+  return `sum_ascii(key) mod ${tableSize}`;
+}
+
+function clearNotifications() { notifLog.innerHTML = ''; }
+
+function addNotification(msg) {
+  const entry = document.createElement('div');
+  entry.className = 'notif-entry';
+  entry.innerHTML = msg;
+  notifLog.appendChild(entry);
+  requestAnimationFrame(() => entry.classList.add('visible'));
+  notifLog.scrollTop = notifLog.scrollHeight;
+}
+
+function showBanner(msg, type) {
+  statusBanner.textContent = msg;
+  statusBanner.className = `status-banner visible ${type}`;
+}
+
+function setControlsEnabled(enabled) {
+  keyInput.disabled = !enabled;
+  btnInsert.disabled = !enabled;
+}
+
+function clearProbeHighlights() {
+  document.querySelectorAll('.bucket-content.probe-highlight, .bucket-content.probe-success, .bucket-content.probing-check').forEach(el => {
+    el.classList.remove('probe-highlight', 'probe-success', 'probing-check');
+  });
+  document.querySelectorAll('.probe-arrow').forEach(el => el.remove());
+}
+
+function highlightBucket(index, type) {
+  const el = document.querySelector(`.bucket-content[data-index="${index}"]`);
+  if (el) el.classList.add(type);
+}
+
+async function drawProbeArrow(fromIndex, toIndex, isSuccess = false) {
+  const fromEl = document.querySelector(`.bucket-content[data-index="${fromIndex}"]`);
+  const toEl = document.querySelector(`.bucket-content[data-index="${toIndex}"]`);
+  if (!fromEl || !toEl) return;
+
+  const containerRect = tableContainer.getBoundingClientRect();
+  const fromRect = fromEl.getBoundingClientRect();
+  const toRect = toEl.getBoundingClientRect();
+
+  const x1 = fromRect.right - containerRect.left - 20;
+  const y1 = fromRect.bottom - containerRect.top - 6;
+  const x2 = toRect.right - containerRect.left - 20;
+  const y2 = toRect.top - containerRect.top + 8;
+
+  const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+  const arrow = document.createElement('div');
+  arrow.className = 'probe-arrow' + (isSuccess ? ' success' : '');
+  arrow.style.position = 'absolute';
+  arrow.style.left = '0';
+  arrow.style.top = '0';
+  arrow.style.width = '100%';
+  arrow.style.height = '100%';
+  arrow.style.pointerEvents = 'none';
+  arrow.style.zIndex = '10';
+
+  const width = tableContainer.offsetWidth;
+  const height = tableContainer.offsetHeight;
+  svg.setAttribute('width', width);
+  svg.setAttribute('height', height);
+  svg.setAttribute('viewBox', `0 0 ${width} ${height}`);
+  svg.style.overflow = 'visible';
+
+  const path = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+  const d = `M ${x1} ${y1} C ${x1 + 40} ${y1 + 16}, ${x2 + 40} ${y2 - 16}, ${x2} ${y2}`;
+  path.setAttribute('d', d);
+  path.setAttribute('stroke', isSuccess ? '#198754' : '#FFC107');
+  path.setAttribute('stroke-width', '3');
+  path.setAttribute('fill', 'none');
+  path.setAttribute('stroke-linecap', 'round');
+
+  if (!isSuccess) {
+    path.setAttribute('stroke-dasharray', '8 4');
+    path.classList.add('animating');
+  }
+
+  const arrowHead = document.createElementNS('http://www.w3.org/2000/svg', 'polygon');
+  const angle = Math.atan2(y2 - y1, x2 - x1);
+  const headLen = 10;
+  const px = x2 - headLen * Math.cos(angle);
+  const py = y2 - headLen * Math.sin(angle);
+  arrowHead.setAttribute('points', `${x2},${y2} ${px - 5},${py - 5} ${px + 5},${py - 5}`);
+  arrowHead.setAttribute('fill', isSuccess ? '#198754' : '#FFC107');
+
+  svg.appendChild(path);
+  svg.appendChild(arrowHead);
+  arrow.appendChild(svg);
+  tableContainer.appendChild(arrow);
+  arrow.classList.add('visible');
+
+  return new Promise(resolve => setTimeout(resolve, 600));
+}
+
+async function insertKeyAnimated(key) {
+  if (isAnimating) return;
+  isAnimating = true;
+  setControlsEnabled(false);
+
+  const displayKey = String(key);
+  const hashIndex = compileHashFunction(key);
+  const hashFnLabel = getHashFnLabel();
+
+  clearProbeHighlights();
+  clearNotifications();
+  statusBanner.className = 'status-banner';
+
+  addNotification(`<span class="n-info">Inserting key: "${displayKey}"</span>`);
+  addNotification(`<span class="n-info">  h("${displayKey}") = ${hashFnLabel} = <b>${hashIndex}</b></span>`);
+
+  if (resolutionMethod === 'chaining') {
+    const chain = table[hashIndex];
+    const alreadyExists = chain.some(node => String(node.key) === displayKey);
+    if (alreadyExists) {
+      addNotification(`<span class="n-info">  Key "${displayKey}" already exists at bucket[${hashIndex}]</span>`);
+      hashDisplay.textContent = `hash("${displayKey}") = ${hashFnLabel} = ${hashIndex}  |  Key already exists`;
+      isAnimating = false;
+      setControlsEnabled(true);
+      return;
+    }
+
+    const isCollision = chain.length > 0;
+
+    if (isCollision) {
+      collisionCount++;
+      addNotification(`<span class="n-collision">  COLLISION at bucket[${hashIndex}]!</span>`);
+      addNotification(`<span class="n-collision">  Existing keys in bucket[${hashIndex}]: ${chain.map(c=>c.key).join(', ')}</span>`);
+      addNotification(`<span class="n-probe">  Resolving via CHAINING: appending "${displayKey}" to linked list</span>`);
+      showBanner(`COLLISION at bucket ${hashIndex}! "${displayKey}" collides -- added to chain.`, 'collision');
+      if (stepByStepMode) {
+        highlightBucket(hashIndex, 'collision-active');
+        highlightBucket(hashIndex, 'probe-highlight');
+        await new Promise(r => setTimeout(r, 1200));
+      }
+    }
+
+    chain.push({ key: displayKey, index: chain.length });
+    keysInserted++;
+    history.push({ key: displayKey, index: hashIndex, collision: isCollision, method: 'chaining' });
+
+    if (!isCollision) {
+      addNotification(`<span class="n-success">  Bucket[${hashIndex}] is empty -- inserting "${displayKey}"</span>`);
+      showBanner(`"${displayKey}" inserted at bucket ${hashIndex}.`, 'success');
+    } else {
+      addNotification(`<span class="n-success">  "${displayKey}" added to chain at position ${chain.length} in bucket[${hashIndex}]</span>`);
+    }
+
+    renderTable();
+    updateStats();
+    hashDisplay.textContent = isCollision
+      ? `hash("${displayKey}") = ${hashFnLabel} = ${hashIndex}  COLLISION -- chained`
+      : `hash("${displayKey}") = ${hashFnLabel} = ${hashIndex}  Inserted`;
+
+  } else {
+    let probeIndex = hashIndex;
+    let probes = 0;
+    let collisionOnInsert = false;
+
+    for (let p = 0; p < tableSize; p++) {
+      const idx = (hashIndex + p) % tableSize;
+      if (table[idx].occupied && String(table[idx].key) === displayKey) {
+        addNotification(`<span class="n-info">  Key "${displayKey}" already exists at bucket[${idx}]</span>`);
+        hashDisplay.textContent = `hash("${displayKey}") = ${hashFnLabel} = ${hashIndex}  |  Key already exists`;
+        isAnimating = false;
+        setControlsEnabled(true);
+        renderTable();
+        return;
+      }
+    }
+
+    while (table[probeIndex].occupied && probes < tableSize) {
+      collisionOnInsert = true;
+      if (stepByStepMode) {
+        addNotification(`<span class="n-probe">  Checking bucket[${probeIndex}]... OCCUPIED (contains "${table[probeIndex].key}")</span>`);
+        highlightBucket(probeIndex, 'probe-highlight');
+        highlightBucket(probeIndex, 'probing-check');
+        if (probes === 0) {
+          highlightBucket(hashIndex, 'collision-active');
+          addNotification(`<span class="n-collision">  COLLISION at bucket[${hashIndex}]!</span>`);
+          showBanner(`COLLISION at bucket ${hashIndex}! Probing to find empty slot...`, 'probing');
+        }
+        await new Promise(r => setTimeout(r, 900));
+      }
+      probes++;
+      const nextIndex = (hashIndex + probes) % tableSize;
+      if (stepByStepMode && table[nextIndex] && table[nextIndex].occupied) {
+        await drawProbeArrow(probeIndex, nextIndex, false);
+      }
+      probeIndex = nextIndex;
+    }
+
+    if (probes >= tableSize) {
+      addNotification(`<span class="n-collision">  All buckets full -- cannot insert "${displayKey}"</span>`);
+      hashDisplay.textContent = `hash("${displayKey}") = ${hashFnLabel} = ${hashIndex}  Table full!`;
+      showBanner(`Cannot insert "${displayKey}" -- table is full.`, 'collision');
+      isAnimating = false;
+      setControlsEnabled(true);
+      renderTable();
+      return;
+    }
+
+    if (collisionOnInsert) {
+      collisionCount++;
+      if (stepByStepMode) {
+        addNotification(`<span class="n-probe">  Checking bucket[${probeIndex}]... EMPTY</span>`);
+        highlightBucket(probeIndex, 'probe-success');
+        if (probes > 0) {
+          const prevProbeIdx = (hashIndex + probes - 1) % tableSize;
+          await drawProbeArrow(prevProbeIdx, probeIndex, true);
+        }
+        await new Promise(r => setTimeout(r, 700));
+        addNotification(`<span class="n-success">  Inserting "${displayKey}" at bucket[${probeIndex}] (${probes} probe${probes>1?'s':''} from hash index)</span>`);
+        showBanner(`"${displayKey}" probed to bucket ${probeIndex} after ${probes} probe${probes>1?'s':''}.`, 'success');
+      }
+    } else {
+      addNotification(`<span class="n-success">  Bucket[${hashIndex}] is empty -- inserting "${displayKey}"</span>`);
+      showBanner(`"${displayKey}" inserted at bucket ${hashIndex}.`, 'success');
+    }
+
+    table[probeIndex] = { key: displayKey, occupied: true };
+    keysInserted++;
+    history.push({ key: displayKey, index: hashIndex, probedTo: probeIndex, collision: collisionOnInsert, probes: probes, method: 'linear-probing' });
+
+    hashDisplay.textContent = collisionOnInsert
+      ? `hash("${displayKey}") = ${hashFnLabel} = ${hashIndex}  COLLISION -- probed to [${probeIndex}] (${probes} probe${probes>1?'s':''})`
+      : `hash("${displayKey}") = ${hashFnLabel} = ${hashIndex}  Inserted`;
+  }
+
+  renderTable();
+  updateStats();
+  keyInput.value = '';
+
+  if (stepByStepMode) await new Promise(r => setTimeout(r, 500));
+  clearProbeHighlights();
+  if (statusBanner.className.includes('success')) {
+    setTimeout(() => { statusBanner.className = 'status-banner'; }, 2000);
+  }
+
+  isAnimating = false;
+  setControlsEnabled(true);
+  keyInput.focus();
+}
+
+function initTable() {
+  if (isAnimating) return;
+  table = [];
+  for (let i = 0; i < tableSize; i++) {
+    table[i] = resolutionMethod === 'chaining' ? [] : { key: null, occupied: false };
+  }
+  history = [];
+  keysInserted = 0;
+  collisionCount = 0;
+  hashDisplay.textContent = 'Ready -- insert a key to begin';
+  statusBanner.className = 'status-banner';
+  clearProbeHighlights();
+  clearNotifications();
+  notifLog.innerHTML = '<div style="color:#555;font-size:12px;">Insert keys to see the step-by-step breakdown here...</div>';
+  updateStats();
+  renderTable();
+  setControlsEnabled(true);
+  keyInput.focus();
+}
+
+function renderTable() {
+  tableContainer.innerHTML = '';
+  for (let i = 0; i < tableSize; i++) {
+    const row = document.createElement('div');
+    row.className = 'bucket-row';
+
+    const indexDiv = document.createElement('div');
+    indexDiv.className = 'bucket-index';
+    indexDiv.textContent = i;
+    row.appendChild(indexDiv);
+
+    const contentDiv = document.createElement('div');
+    contentDiv.className = 'bucket-content';
+    contentDiv.setAttribute('data-index', i);
+
+    if (resolutionMethod === 'chaining') {
+      const chain = table[i];
+      if (chain.length > 0) {
+        contentDiv.classList.add('occupied');
+        chain.forEach((node, idx) => {
+          if (idx > 0) {
+            const arrow = document.createElement('span');
+            arrow.className = 'chain-arrow';
+            arrow.textContent = '\u2192';
+            contentDiv.appendChild(arrow);
+          }
+          const nodeEl = document.createElement('span');
+          nodeEl.className = 'key-node' + (idx > 0 ? ' chained' : '');
+          nodeEl.textContent = node.key;
+          contentDiv.appendChild(nodeEl);
+        });
+      } else {
+        const emptyEl = document.createElement('span');
+        emptyEl.className = 'key-node empty-slot';
+        emptyEl.textContent = 'empty';
+        contentDiv.appendChild(emptyEl);
+      }
+    } else {
+      const slot = table[i];
+      if (slot.occupied) {
+        contentDiv.classList.add('occupied');
+        const nodeEl = document.createElement('span');
+        nodeEl.className = 'key-node';
+        nodeEl.textContent = slot.key;
+        contentDiv.appendChild(nodeEl);
+      } else {
+        const emptyEl = document.createElement('span');
+        emptyEl.className = 'key-node empty-slot';
+        emptyEl.textContent = 'empty';
+        contentDiv.appendChild(emptyEl);
+      }
+    }
+
+    row.appendChild(contentDiv);
+    tableContainer.appendChild(row);
+  }
+}
+
+function updateStats() {
+  statKeys.textContent = keysInserted;
+  statCollisions.textContent = collisionCount;
+
+  const rawLoadFactor = keysInserted / tableSize;
+  statLoadFactor.textContent = rawLoadFactor.toFixed(2);
+  loadBar.style.width = Math.min(rawLoadFactor * 100, 100) + '%';
+
+  loadBar.className = 'load-bar';
+  if (rawLoadFactor > 0.75) loadBar.classList.add('danger');
+  else if (rawLoadFactor > 0.5) loadBar.classList.add('warning');
+
+  if (resolutionMethod === 'chaining' && keysInserted > 0) {
+    let totalChainLen = 0, nonEmptyBuckets = 0;
+    for (const chain of table) {
+      if (chain.length > 0) { totalChainLen += chain.length; nonEmptyBuckets++; }
+    }
+    statAvgProbes.textContent = nonEmptyBuckets > 0 ? (totalChainLen / nonEmptyBuckets).toFixed(2) : '--';
+  } else if (resolutionMethod === 'linear-probing' && collisionCount > 0) {
+    let totalProbes = 0;
+    for (const entry of history) {
+      if (entry.method === 'linear-probing' && entry.probes) totalProbes += entry.probes;
+    }
+    statAvgProbes.textContent = (totalProbes / collisionCount).toFixed(2);
+  } else {
+    statAvgProbes.textContent = '--';
+  }
+}
+
+tableSizeSelect.addEventListener('change', () => {
+  tableSize = parseInt(tableSizeSelect.value);
+  initTable();
+});
+
+hashFunctionSelect.addEventListener('change', () => {
+  hashFnType = hashFunctionSelect.value;
+  initTable();
+});
+
+methodGroup.querySelectorAll('button').forEach(btn => {
+  btn.addEventListener('click', () => {
+    methodGroup.querySelectorAll('button').forEach(b => { b.classList.remove('active','btn-primary'); b.classList.add('btn-outline-primary'); });
+    btn.classList.add('active','btn-primary');
+    btn.classList.remove('btn-outline-primary');
+    resolutionMethod = btn.dataset.method;
+    initTable();
+  });
+});
+
+btnInsert.addEventListener('click', () => {
+  const key = keyInput.value.trim();
+  if (!key || isAnimating) return;
+  insertKeyAnimated(key);
+});
+
+keyInput.addEventListener('keydown', (e) => {
+  if (e.key === 'Enter') {
+    const key = keyInput.value.trim();
+    if (!key || isAnimating) return;
+    insertKeyAnimated(key);
+  }
+});
+
+btnReset.addEventListener('click', () => {
+  if (isAnimating) return;
+  initTable();
+});
+
+initTable();
+</script>
+</body>
+</html>
